@@ -559,6 +559,99 @@ async def battle_command(interaction: discord.Interaction, opponent: discord.Use
     winner = random.choice([interaction.user, opponent])
     await interaction.channel.send(f"Winner: {winner.name}!")
 
+@bot.event
+async def on_message(message):
+    if isinstance(message.channel, discord.DMChannel) or message.author == bot.user:
+        return
+
+    guild_state = guild_dog_states.get(message.guild.id, {"current_dog": None, "dog_message": None})
+    current_dog = guild_state["current_dog"]
+    dog_message = guild_state["dog_message"]
+
+    if message.content.lower() == 'dog' and current_dog is not None:
+        if message.channel.id == dog_message.channel.id:
+            spawn_time = dog_message.created_at.timestamp()
+            catch_time = time.time()
+            elapsed_time = catch_time - spawn_time
+
+            await dog_message.delete()
+
+            db.add_dog(current_dog['name'], message.author.id, message.guild.id, 1)
+
+            dogs = db.list_dogs(message.author.id, message.guild.id)
+            amount = next((dog[1] for dog in dogs if dog[0] == current_dog['name']), 0)
+
+            # Award achievements
+            await check_achievements(message.author, amount, elapsed_time, current_dog)
+
+            await message.channel.send(f'{message.author.name} caught {current_dog["emoji"]} {current_dog["name"]} dog!!!\n'
+                                       f'You have now caught {amount} dogs of that type!!!\n'
+                                       f'This fella was caught in {int(elapsed_time)} seconds!!!')
+
+            guild_dog_states[message.guild.id] = {"current_dog": None, "dog_message": None}
+
+# Check achievements
+async def check_achievements(user, amount, elapsed_time, current_dog):
+    user_id = user.id
+    guild_id = user.guild.id  # Assuming `user.guild.id` is the guild where the dog was caught.
+
+    # Check for "First Catch" achievement
+    if amount == 1 and not db.has_achievement(user_id, guild_id, "First Catch"):
+        db.add_achievement(user_id, guild_id, "First Catch")
+        await user.send("Congratulations! You've earned the 'First Catch' achievement!")
+
+    # Check for "Dog Collector" achievement (catching 10 dogs)
+    if amount == 10 and not db.has_achievement(user_id, guild_id, "Dog Collector"):
+        db.add_achievement(user_id, guild_id, "Dog Collector")
+        await user.send("Congratulations! You've earned the 'Dog Collector' achievement!")
+
+    # Check for "Speed Catcher" achievement (catching in under 10 seconds)
+    if elapsed_time < 10 and not db.has_achievement(user_id, guild_id, "Speed Catcher"):
+        db.add_achievement(user_id, guild_id, "Speed Catcher")
+        await user.send("Congratulations! You've earned the 'Speed Catcher' achievement!")
+
+    # Check for "Rare Hunter" achievement (catching a rare dog)
+    if current_dog['chance'] < 0.1 and not db.has_achievement(user_id, guild_id, "Rare Hunter"):
+        db.add_achievement(user_id, guild_id, "Rare Hunter")
+        await user.send("Congratulations! You've earned the 'Rare Hunter' achievement!")
+
+    # You can add more achievement checks as necessary
+
+
+@bot.tree.command(name="achievements", description="See your achievements!")
+async def achievements_command(interaction: discord.Interaction, member: discord.Member = None):
+    user_id = member.id if member else interaction.user.id
+    guild_id = interaction.guild.id  # Guild ID for the server
+
+    # Fetch the achievements
+    achievements = db.list_achievements(user_id, guild_id)
+
+    # Prepare the embed
+    embed = discord.Embed(title="Achievements", description=f"Achievements of {member.display_name if member else interaction.user.display_name}", color=discord.Color.green())
+    
+    if achievements:
+        for achievement in achievements:
+            embed.add_field(name=achievement[0], value=f"Earned on {achievement[1]}", inline=False)
+    else:
+        embed.description = f"{member.display_name if member else 'You'} haven't earned any achievements yet."
+
+    await interaction.response.send_message(embed=embed)
+class DB:
+    def add_achievement(self, user_id, guild_id, achievement_name):
+        # Add the achievement to the database
+        query = "INSERT INTO achievements (user_id, guild_id, achievement_name, earned_at) VALUES (?, ?, ?, ?)"
+        self.execute(query, (user_id, guild_id, achievement_name, int(time.time())))
+
+    def has_achievement(self, user_id, guild_id, achievement_name):
+        # Check if the user has the achievement
+        query = "SELECT 1 FROM achievements WHERE user_id = ? AND guild_id = ? AND achievement_name = ?"
+        return self.fetch_one(query, (user_id, guild_id, achievement_name)) is not None
+
+    def list_achievements(self, user_id, guild_id):
+        # List all achievements for the user
+        query = "SELECT achievement_name, earned_at FROM achievements WHERE user_id = ? AND guild_id = ?"
+        return self.fetch_all(query, (user_id, guild_id))
+
 token = os.getenv("BOT_TOKEN")
 if not token:
     raise EnvironmentError("BOT_TOKEN is not set in the environment.")
