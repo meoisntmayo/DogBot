@@ -582,6 +582,24 @@ async def battle_command(interaction: discord.Interaction, opponent: discord.Use
     winner = random.choice([interaction.user, opponent])
     await interaction.channel.send(f"Winner: {winner.name}!")
 
+@bot.event
+async def on_message(message):
+    if message.author == bot.user:
+        return
+
+    target_word = 'cat'
+    emoji_name = '<:banished:1302758222201098341>'
+
+    if target_word.lower() in message.content.lower():
+        # get tge emoji object!1!1!!!1!!!2
+        emoji = discord.utils.get(message.guild.emojis, name=<:banished:1302758222201098341>)
+        if emoji:
+            await message.add_reaction(emoji)
+        else:
+            print("<:banished:1302758222201098341>")
+    await bot.process_commands(message)
+
+
 token = os.getenv("BOT_TOKEN")
 if not token:
     raise EnvironmentError("BOT_TOKEN is not set in the environment.")
